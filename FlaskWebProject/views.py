@@ -21,20 +21,32 @@ imageSourceUrl = 'https://' + app.config['BLOB_ACCOUNT'] + '.blob.core.windows.n
 def home():
     user = User.query.filter_by(username=current_user.username).first_or_404()
     posts = Post.query.all()
+
+    app.logger.info(f"Home page accessed by user: {current_user.username}")
+
     return render_template(
         'index.html',
         title='Home Page',
         posts=posts
     )
 
+
 @app.route('/new_post', methods=['GET', 'POST'])
 @login_required
 def new_post():
+
     form = PostForm(request.form)
+
     if form.validate_on_submit():
+
         post = Post()
+
         post.save_changes(form, request.files['image_path'], current_user.id, new=True)
+
+        app.logger.info(f"New post created by user: {current_user.username}")
+
         return redirect(url_for('home'))
+
     return render_template(
         'post.html',
         title='Create Post',
@@ -42,14 +54,23 @@ def new_post():
         form=form
     )
 
+
 @app.route('/post/<int:id>', methods=['GET', 'POST'])
 @login_required
 def post(id):
+
     post = Post.query.get(int(id))
+
     form = PostForm(formdata=request.form, obj=post)
+
     if form.validate_on_submit():
+
         post.save_changes(form, request.files['image_path'], current_user.id)
+
+        app.logger.info(f"Post updated by user: {current_user.username} | Post ID: {id}")
+
         return redirect(url_for('home'))
+
     return render_template(
         'post.html',
         title='Edit Post',
@@ -57,24 +78,34 @@ def post(id):
         form=form
     )
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+
     if current_user.is_authenticated:
         return redirect(url_for('home'))
 
     form = LoginForm()
 
     if form.validate_on_submit():
+
         user = User.query.filter_by(username=form.username.data).first()
 
         if user is None or not user.check_password(form.password.data):
+
             flash('Invalid username or password')
+
             app.logger.warning(
-                f"Failed login attempt. Username entered: {form.username.data} | IP: {request.remote_addr}"
-                )
+                f"FAILED LOGIN ATTEMPT | Username entered: {form.username.data} | IP: {request.remote_addr}"
+            )
+
             return redirect(url_for('login'))
 
         login_user(user, remember=form.remember_me.data)
+
+        app.logger.info(
+            f"SUCCESSFUL LOGIN | Username: {user.username} | IP: {request.remote_addr}"
+        )
 
         next_page = request.args.get('next')
 
@@ -97,13 +128,16 @@ def login():
         auth_url=auth_url
     )
 
+
 @app.route(Config.REDIRECT_PATH)
 def authorized():
 
     if request.args.get('state') != session.get("state"):
+        app.logger.warning("State mismatch during authentication")
         return redirect(url_for("home"))
 
     if "error" in request.args:
+        app.logger.error(f"Authentication error: {request.args}")
         return render_template("auth_error.html", result=request.args)
 
     if request.args.get('code'):
@@ -117,6 +151,7 @@ def authorized():
         )
 
         if "error" in result:
+            app.logger.error(f"MSAL authentication error: {result}")
             return render_template("auth_error.html", result=result)
 
         session["user"] = result.get("id_token_claims")
@@ -125,12 +160,18 @@ def authorized():
 
         login_user(user)
 
+        app.logger.info("User authenticated via Microsoft login")
+
         _save_cache(cache)
 
     return redirect(url_for('home'))
 
+
 @app.route('/logout')
 def logout():
+
+    if current_user.is_authenticated:
+        app.logger.info(f"User logged out: {current_user.username}")
 
     logout_user()
 
@@ -145,6 +186,7 @@ def logout():
         )
 
     return redirect(url_for('login'))
+
 
 def _load_cache():
 
